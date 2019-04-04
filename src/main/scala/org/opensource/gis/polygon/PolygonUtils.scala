@@ -20,16 +20,27 @@ import scala.annotation.tailrec
  * Third algorithm with precalc optimization
  */
 
+case class Diner(diner_id: Int, latitude: Double, longitude: Double)
 case class GeoPoint(latitude: Double, longitude: Double)
 
-case class Polygon(points: List[GeoPoint]) {
+case class Polygon(wkt: String) {
+
+  val y  = wkt.replaceAll("POLYGON", "").replaceAll("\\(", "" ).replaceAll("\\)", "" ).split(",")
+
+  val z1 = y.map(_.split(' ')(0).toDouble)
+  val z2 = y.map(_.split(' ')(1).toDouble)
+
+  // polygon is arranged as LON/LAT - so reverse
+  val zipped = z2 zip z1
+  val points = zipped.map(GeoPoint.tupled).toList
+
   def corners = points.size
   def horizontalCoordinates = points map (_.latitude)
   def verticalCoordinates = points map (_.longitude)
 }
 
 object PolygonUtils {
-  def pointInPolygon(point: GeoPoint, polygon: Polygon): Boolean = {
+  def pointInPolygon(DinerList: Array[(Int, Double, Double)], PolygonStr: String): Array[Any] = {
 
       @tailrec
       def precalc(polyCorners: Int, i: Int, j: Int, polyX: Array[Double], polyY: Array[Double],
@@ -46,27 +57,35 @@ object PolygonUtils {
       }
 
       @tailrec
-      def isInside(point: GeoPoint, polyCorners: Int, i: Int, j: Int, polyX: Array[Double], polyY: Array[Double],
+      def isInside(diner: Diner, polyCorners: Int, i: Int, j: Int, polyX: Array[Double], polyY: Array[Double],
                     constant: Array[Double], multiple: Array[Double], oddNodes: Boolean): Boolean = {
-        val x = point.latitude
-        val y = point.longitude
+        val x = diner.latitude
+        val y = diner.longitude
         i match {
           case i if i == polyCorners => oddNodes
           case i if polyY{i} < y && polyY{j} >= y || polyY{j} < y && polyY{i}>=y => {
             val odd = oddNodes ^ ( y * multiple{i} + constant{i} < x)
-            isInside(point, polyCorners, i + 1, i, polyX, polyY, constant, multiple, odd)
+            isInside(diner, polyCorners, i + 1, i, polyX, polyY, constant, multiple, odd)
           }
-          case i: Int => isInside(point, polyCorners, i + 1, i, polyX, polyY, constant, multiple, oddNodes)
+          case i: Int => isInside(diner, polyCorners, i + 1, i, polyX, polyY, constant, multiple, oddNodes)
         }
       }
 
+    val polygon = Polygon(PolygonStr)
     val polyX: Array[Double] = polygon.horizontalCoordinates.toArray
     val polyY: Array[Double] = polygon.verticalCoordinates.toArray
 
     val tuple = precalc(polygon.corners, 0, polygon.corners - 1, polyX, polyY, List(), List())
 
+    // looks like below defined value is not changed in function !!
     val oddNodes = false
-    isInside(point, polygon.corners, 0, polygon.corners - 1, polyX, polyY, tuple._1.toArray, tuple._2.toArray, oddNodes)
+
+    // if returned true then map to diner_id else return none - Debug and see values, something I made wrong
+    val r =  DinerList.map(Diner.tupled).map(x=> if (isInside(x, polygon.corners, 0, polygon.corners - 1, polyX, polyY, tuple._1.toArray, tuple._2.toArray, oddNodes)) x.diner_id else None )
+
+    r.map(x=> println(x))
+    r
+
   }
 
 }
