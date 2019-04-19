@@ -10,9 +10,14 @@
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+
 package org.opensource.gis.polygon
+import org.apache.spark.sql.Row
 
 import scala.annotation.tailrec
+import scala.collection.mutable
+import org.apache.spark.sql.expressions.UserDefinedFunction
+import org.apache.spark.sql.functions._
 
 /**
  * Source: http://alienryderflex.com/polygon/
@@ -24,7 +29,6 @@ case class Diner(diner_id: Int, latitude: Double, longitude: Double)
 case class GeoPoint(latitude: Double, longitude: Double)
 
 case class Polygon(wkt: String) {
-
   val y  = wkt.replaceAll("POLYGON", "").replaceAll("\\(", "" ).replaceAll("\\)", "" ).split(",")
 
   val z1 = y.map(_.split(' ')(0).toDouble)
@@ -40,7 +44,7 @@ case class Polygon(wkt: String) {
 }
 
 object PolygonUtils {
-  def pointInPolygon(DinerList: Array[(Int, Double, Double)], PolygonStr: String): Array[Any] = {
+  def pointInPolygon(PolygonStr: String, DinerList: mutable.WrappedArray[Row]): Array[Int] = {
 
       @tailrec
       def precalc(polyCorners: Int, i: Int, j: Int, polyX: Array[Double], polyY: Array[Double],
@@ -77,15 +81,11 @@ object PolygonUtils {
 
     val tuple = precalc(polygon.corners, 0, polygon.corners - 1, polyX, polyY, List(), List())
 
-    // looks like below defined value is not changed in function !!
     val oddNodes = false
 
-    // if returned true then map to diner_id else return none - Debug and see values, something I made wrong
-    val r =  DinerList.map(Diner.tupled).map(x=> if (isInside(x, polygon.corners, 0, polygon.corners - 1, polyX, polyY, tuple._1.toArray, tuple._2.toArray, oddNodes)) x.diner_id else None )
-
-    r.map(x=> println(x))
-    r
-
+    // We have to have a numeric return in the else, else it goes to AnyRef data type
+      val r =  DinerList.map{case Row(diner_id: Int, latitude: Double, longitude: Double) => Diner(diner_id: Int, latitude: Double, longitude: Double)}.map(x=> if (isInside(x, polygon.corners, 0, polygon.corners - 1, polyX, polyY, tuple._1.toArray, tuple._2.toArray, oddNodes)) x.diner_id else 0).filter(x=> x>0).toArray
+      r
   }
-
+  def scala_pip(): UserDefinedFunction = udf(pointInPolygon _ )
 }
