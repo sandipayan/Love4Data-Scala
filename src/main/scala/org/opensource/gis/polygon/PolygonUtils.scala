@@ -1,16 +1,3 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2015 Darel Rex Finley, Sergio Magnacco
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
-
-
 package org.opensource.gis.polygon
 import org.apache.spark.sql.Row
 
@@ -21,7 +8,6 @@ import org.apache.spark.sql.functions._
 
 /**
  * Source: http://alienryderflex.com/polygon/
- *
  * Third algorithm with precalc optimization
  */
 
@@ -31,20 +17,21 @@ case class GeoPoint(latitude: Double, longitude: Double)
 case class Polygon(wkt: String) {
   val y  = wkt.replaceAll("POLYGON", "").replaceAll("\\(", "" ).replaceAll("\\)", "" ).split(",")
 
-  val z1 = y.map(_.split(' ')(0).toDouble)
-  val z2 = y.map(_.split(' ')(1).toDouble)
-
-  // polygon is arranged as LON/LAT - so reverse
-  val zipped = z2 zip z1
-  val points = zipped.map(GeoPoint.tupled).toList
-
+// polygon is arranged as LON/LAT - so reverse
+  val points = y.map(_.split(' ') match {case Array(a,b) => GeoPoint(b.toDouble,a.toDouble)})
   def corners = points.size
   def horizontalCoordinates = points map (_.latitude)
   def verticalCoordinates = points map (_.longitude)
 }
 
+case class Str2Diners(points: String) {
+    val y = points.replaceAll("\\[", "" ).replaceAll("\\]", "").split(",")
+    val z  = y.map(_.trim.split(' ') match {case Array(a,b,c) => Diner(a.toInt, b.toDouble, c.toDouble)})
+}
+
+
 object PolygonUtils {
-  def pointInPolygon(PolygonStr: String, DinerList: mutable.WrappedArray[Row]): Array[Int] = {
+  def pointInPolygon(PolygonStr: String, points: String): Array[Int] = {
 
       @tailrec
       def precalc(polyCorners: Int, i: Int, j: Int, polyX: Array[Double], polyY: Array[Double],
@@ -76,16 +63,17 @@ object PolygonUtils {
       }
 
     val polygon = Polygon(PolygonStr)
-    val polyX: Array[Double] = polygon.horizontalCoordinates.toArray
-    val polyY: Array[Double] = polygon.verticalCoordinates.toArray
+    val polyX: Array[Double] = polygon.horizontalCoordinates
+    val polyY: Array[Double] = polygon.verticalCoordinates
 
     val tuple = precalc(polygon.corners, 0, polygon.corners - 1, polyX, polyY, List(), List())
 
     val oddNodes = false
 
-    // We have to have a numeric return in the else, else it goes to AnyRef data type
-      val r =  DinerList.map{case Row(diner_id: Int, latitude: Double, longitude: Double) => Diner(diner_id: Int, latitude: Double, longitude: Double)}.map(x=> if (isInside(x, polygon.corners, 0, polygon.corners - 1, polyX, polyY, tuple._1.toArray, tuple._2.toArray, oddNodes)) x.diner_id else 0).filter(x=> x>0).toArray
-      r
+    val DinerList = Str2Diners(points).z
+
+    val r =  DinerList.map(x=> if (isInside(x, polygon.corners, 0, polygon.corners - 1, polyX, polyY, tuple._1.toArray, tuple._2.toArray, oddNodes)) x.diner_id else 0).filter(x=> x>0)
+    r
   }
   def scala_pip(): UserDefinedFunction = udf(pointInPolygon _ )
 }
